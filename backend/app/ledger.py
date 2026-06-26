@@ -128,3 +128,38 @@ def transfer(session: Session, *, from_id, to_id, amount_cents, idempotency_key,
         idempotency_key=idempotency_key, event_type="transfer.posted",
         description=description, check_funds=True,
     )
+
+
+def _holds_account(session: Session) -> Account:
+    acc = session.exec(select(Account).where(Account.name == "holds:system")).first()
+    if acc is None:
+        acc = Account(name="holds:system", currency="USD")
+        session.add(acc)
+        session.commit()
+        session.refresh(acc)
+    return acc
+
+
+def saga_transfer(session: Session, *, from_id, to_id, amount_cents, idempotency_key, fail_at=None) -> dict:
+    """Multi-step transfer as a SAGA: reserve (sender -> holds) then capture
+    (holds -> recipient). If capture fails, COMPENSATE by releasing the hold back
+    to the sender. Each step is its own idempotent, committed transaction — so a
+    partial failure rolls back cleanly and the ledger never drifts.
+    `fail_at="capture"` injects a failure to demonstrate compensation."""
+    holds = _holds_account(session)
+
+    # Step 1 — reserve funds: sender -> holds
+    transfer(session, from_id=from_id, to_id=holds.id, amount_cents=amount_cents,
+             idempotency_key=f"{idempotency_key}:reserve", description="saga:reserve")
+    try:
+        if fail_at == "capture":
+            raise RuntimeError("injected failure during capture")
+        # Step 2 — capture: holds -> recipient
+        txn = transfer(session, from_id=holds.id, to_id=to_id, amount_cents=amount_cents,
+                       idempotency_key=f"{idempotency_key}:capture", description="saga:capture")
+        return {"status": "posted", "transaction_id": str(txn.id)}
+    except Exception:
+        # Compensation — release the hold back to the sender
+        transfer(session, from_id=holds.id, to_id=from_id, amount_cents=amount_cents,
+                 idempotency_key=f"{idempotency_key}:compensate", description="saga:compensate")
+        return {"status": "compensated"}

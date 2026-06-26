@@ -90,3 +90,22 @@ def create_transfer(
     return TransactionPublic(
         id=txn.id, status=txn.status, description=txn.description, created_at=txn.created_at
     )
+
+
+@router.post("/saga-transfer")
+def saga_transfer(
+    body: TransferRequest, session: SessionDep, current_user: CurrentUser,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    fail_at: str | None = None,  # set ?fail_at=capture to demo compensation
+):
+    try:
+        return ledger.saga_transfer(
+            session, from_id=body.from_account_id, to_id=body.to_account_id,
+            amount_cents=body.amount_cents, idempotency_key=idempotency_key, fail_at=fail_at,
+        )
+    except ledger.InsufficientFunds:
+        raise HTTPException(status_code=409, detail="insufficient funds")
+    except ledger.AccountNotFound:
+        raise HTTPException(status_code=404, detail="account not found")
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
