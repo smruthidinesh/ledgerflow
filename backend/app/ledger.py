@@ -130,6 +130,29 @@ def transfer(session: Session, *, from_id, to_id, amount_cents, idempotency_key,
     )
 
 
+def recent_activity(session: Session, limit: int = 50) -> list[dict]:
+    """Recent transactions as a human-readable feed: from -> to, amount, status, time."""
+    txns = session.exec(
+        select(Transaction).order_by(Transaction.created_at.desc()).limit(limit)
+    ).all()
+    feed = []
+    for t in txns:
+        entries = session.exec(select(LedgerEntry).where(LedgerEntry.transaction_id == t.id)).all()
+        names = {e.account_id: (session.get(Account, e.account_id).name if session.get(Account, e.account_id) else "?") for e in entries}
+        debit = next((e for e in entries if e.amount_cents < 0), None)
+        credit = next((e for e in entries if e.amount_cents > 0), None)
+        feed.append({
+            "id": str(t.id),
+            "created_at": t.created_at,
+            "status": t.status,
+            "description": t.description,
+            "amount_cents": abs(credit.amount_cents) if credit else 0,
+            "from_account": names.get(debit.account_id) if debit else None,
+            "to_account": names.get(credit.account_id) if credit else None,
+        })
+    return feed
+
+
 def _holds_account(session: Session) -> Account:
     acc = session.exec(select(Account).where(Account.name == "holds:system")).first()
     if acc is None:

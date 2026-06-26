@@ -107,6 +107,11 @@ def reconciliation_report(session: SessionDep, current_user: CurrentUser):
     return reconciliation.reconcile(session)
 
 
+@router.get("/transactions")
+def transactions(session: SessionDep, current_user: CurrentUser, limit: int = 50):
+    return ledger.recent_activity(session, limit=limit)
+
+
 @router.post("/transfers", response_model=TransactionPublic)
 def create_transfer(
     body: TransferRequest, session: SessionDep, current_user: CurrentUser,

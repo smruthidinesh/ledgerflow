@@ -34,17 +34,21 @@ function LedgerPage() {
   const [name, setName] = useState("")
   const [dep, setDep] = useState({ to: "", amount: "" })
   const [tr, setTr] = useState({ from: "", to: "", amount: "" })
+  const [feed, setFeed] = useState<any[]>([])
 
   async function refresh() {
     try {
       setAccounts(await api("/accounts"))
       setRecon(await api("/reconciliation"))
+      setFeed(await api("/transactions?limit=25"))
     } catch (e: any) {
       setMsg(`⚠ ${e.message}`)
     }
   }
   useEffect(() => {
     refresh()
+    const id = setInterval(refresh, 3000) // live: feed + balances update on their own
+    return () => clearInterval(id)
   }, [])
 
   async function run(fn: () => Promise<unknown>, ok: string) {
@@ -136,6 +140,36 @@ function LedgerPage() {
             Transfer
           </button>
         </Card>
+      </div>
+
+      {/* live activity feed */}
+      <h2 className="mt-8 mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        Activity <span className="ml-1 text-xs normal-case text-emerald-400">● live</span>
+      </h2>
+      <div className="overflow-hidden rounded-xl border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-left text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 font-medium">When</th>
+              <th className="px-4 py-2 font-medium">From → To</th>
+              <th className="px-4 py-2 text-right font-medium">Amount</th>
+              <th className="px-4 py-2 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {feed.length === 0 && (
+              <tr><td colSpan={4} className="px-4 py-6 text-center text-muted-foreground">No activity yet.</td></tr>
+            )}
+            {feed.map((f) => (
+              <tr key={f.id} className="border-t">
+                <td className="px-4 py-2 text-muted-foreground">{new Date(f.created_at).toLocaleTimeString()}</td>
+                <td className="px-4 py-2">{f.from_account} <span className="text-muted-foreground">→</span> {f.to_account}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums">{dollars(f.amount_cents)}</td>
+                <td className="px-4 py-2"><span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400">{f.status}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
