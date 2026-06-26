@@ -30,6 +30,10 @@ jobs:
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 5s --health-retries 12
+      # SMTP sink so the template's password-recovery email test can actually send
+      mailcatcher:
+        image: schickling/mailcatcher
+        ports: ["1025:1025"]
     env:
       PROJECT_NAME: LedgerFlow
       ENVIRONMENT: local
@@ -42,6 +46,12 @@ jobs:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: ledgerflow
       REDIS_URL: redis://localhost:6379/0
+      # email config — makes settings.emails_enabled true; sends to the mailcatcher sink
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_TLS: "false"
+      SMTP_SSL: "false"
+      EMAILS_FROM_EMAIL: info@example.com
     steps:
       - uses: actions/checkout@v4
       - name: Install uv (manages Python 3.14 automatically)
