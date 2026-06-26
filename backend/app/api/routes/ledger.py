@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from sqlmodel import func, select
 
@@ -14,6 +14,9 @@ from app.models import (
     LedgerEntry,
     OutboxEvent,
     OutboxStatus,
+    RecurringCreate,
+    RecurringPublic,
+    RecurringTransfer,
     TransactionPublic,
     Transaction,
     TransferRequest,
@@ -27,6 +30,18 @@ def _public(session: SessionDep, acc: Account) -> AccountPublic:
         id=acc.id, name=acc.name, currency=acc.currency,
         balance_cents=ledger.account_balance(session, acc.id), created_at=acc.created_at,
     )
+
+
+def _owned(session: SessionDep, current_user: CurrentUser, account_id) -> Account:
+    """Load an account and enforce tenant isolation: a non-superuser may only touch
+    accounts they own. Closes IDOR — you can't read or move money in another
+    user's account by guessing its id."""
+    acc = session.get(Account, account_id)
+    if acc is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    if not current_user.is_superuser and acc.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="not your account")
+    return acc
 
 
 @router.get("/metrics", response_class=PlainTextResponse)
@@ -77,9 +92,7 @@ def list_accounts(session: SessionDep, current_user: CurrentUser):
 
 @router.get("/accounts/{account_id}", response_model=AccountPublic)
 def get_account(account_id: uuid.UUID, session: SessionDep, current_user: CurrentUser):
-    acc = session.get(Account, account_id)
-    if acc is None:
-        raise HTTPException(status_code=404, detail="account not found")
+    acc = _owned(session, current_user, account_id)
     return _public(session, acc)
 
 
@@ -88,6 +101,7 @@ def deposit(
     body: DepositRequest, session: SessionDep, current_user: CurrentUser,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
 ):
+    _owned(session, current_user, body.to_account_id)  # can only fund your own account
     try:
         txn = ledger.deposit(
             session, to_id=body.to_account_id, amount_cents=body.amount_cents,
@@ -108,8 +122,38 @@ def reconciliation_report(session: SessionDep, current_user: CurrentUser):
 
 
 @router.get("/transactions")
-def transactions(session: SessionDep, current_user: CurrentUser, limit: int = 50):
+def transactions(
+    session: SessionDep, current_user: CurrentUser,
+    limit: int = Query(50, ge=1, le=200),  # cap: attacker can't request an unbounded scan
+):
     return ledger.recent_activity(session, limit=limit)
+
+
+@router.get("/recurring", response_model=list[RecurringPublic])
+def list_recurring(session: SessionDep, current_user: CurrentUser):
+    return ledger.list_recurring(session)
+
+
+@router.post("/recurring", response_model=RecurringPublic)
+def create_recurring(body: RecurringCreate, session: SessionDep, current_user: CurrentUser):
+    _owned(session, current_user, body.from_account_id)  # only schedule from your own account
+    _owned(session, current_user, body.to_account_id)
+    try:
+        return ledger.create_recurring(
+            session, from_id=body.from_account_id, to_id=body.to_account_id,
+            amount_cents=body.amount_cents, interval_seconds=body.interval_seconds,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/recurring/{rid}/stop", response_model=RecurringPublic)
+def stop_recurring(rid: uuid.UUID, session: SessionDep, current_user: CurrentUser):
+    existing = session.get(RecurringTransfer, rid)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="recurring transfer not found")
+    _owned(session, current_user, existing.from_account_id)
+    return ledger.stop_recurring(session, rid)
 
 
 @router.post("/transfers", response_model=TransactionPublic)
@@ -117,6 +161,7 @@ def create_transfer(
     body: TransferRequest, session: SessionDep, current_user: CurrentUser,
     idempotency_key: str = Header(..., alias="Idempotency-Key"),
 ):
+    _owned(session, current_user, body.from_account_id)  # can only move money out of your own account
     try:
         txn = ledger.transfer(
             session, from_id=body.from_account_id, to_id=body.to_account_id,

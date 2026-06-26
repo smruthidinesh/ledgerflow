@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from sqlmodel import Session, select
 
+from app import ledger
 from app.core.db import engine
 from app.core.eventbus import publish
 from app.models import OutboxEvent, OutboxStatus
@@ -49,6 +50,10 @@ def main() -> None:
             n = relay_once()
             if n:
                 log.info("relayed %d outbox event(s) to the bus", n)
+            with Session(engine) as session:
+                ran = ledger.run_due_recurring(session)
+                if ran:
+                    log.info("executed %d recurring payment(s)", ran)
         except Exception:
             log.exception("relay iteration failed")
         time.sleep(POLL_SECONDS)

@@ -7,7 +7,15 @@ from sqlmodel import Session, delete
 from app.core.config import settings
 from app.core.db import engine, init_db
 from app.main import app
-from app.models import Account, Item, LedgerEntry, OutboxEvent, Transaction, User
+from app.models import (
+    Account,
+    Item,
+    LedgerEntry,
+    OutboxEvent,
+    RecurringTransfer,
+    Transaction,
+    User,
+)
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
@@ -19,6 +27,7 @@ def db() -> Generator[Session]:
         yield session
         # clean up in FK-safe order (ledger entries reference accounts/transactions;
         # accounts reference users) so the teardown DELETE on user doesn't violate FKs
+        session.execute(delete(RecurringTransfer))
         session.execute(delete(LedgerEntry))
         session.execute(delete(OutboxEvent))
         session.execute(delete(Transaction))

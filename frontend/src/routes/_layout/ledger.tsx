@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { ArrowRight, Landmark, Plus, Send } from "lucide-react"
+import { ArrowRight, Landmark, Plus, Repeat, Send } from "lucide-react"
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 
@@ -35,12 +35,15 @@ function LedgerPage() {
   const [dep, setDep] = useState({ to: "", amount: "" })
   const [tr, setTr] = useState({ from: "", to: "", amount: "" })
   const [feed, setFeed] = useState<any[]>([])
+  const [recurring, setRecurring] = useState<any[]>([])
+  const [rec, setRec] = useState({ from: "", to: "", amount: "", interval: "5" })
 
   async function refresh() {
     try {
       setAccounts(await api("/accounts"))
       setRecon(await api("/reconciliation"))
       setFeed(await api("/transactions?limit=25"))
+      setRecurring(await api("/recurring"))
     } catch (e: any) {
       setMsg(`⚠ ${e.message}`)
     }
@@ -63,6 +66,7 @@ function LedgerPage() {
   }
 
   const visible = accounts.filter((a) => !a.name.includes(":"))
+  const nameOf = (id: string) => accounts.find((a) => a.id === id)?.name ?? id.slice(0, 8)
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
@@ -116,7 +120,7 @@ function LedgerPage() {
       </div>
 
       {/* actions */}
-      <div className="mt-6 grid gap-4 md:grid-cols-3">
+      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card title="New account" icon={Plus}>
           <input className={inp} placeholder="Account name" value={name} onChange={(e) => setName(e.target.value)} />
           <button className={btn} onClick={() => run(() => api("/accounts", { method: "POST", body: JSON.stringify({ name }) }).then(() => setName("")), "account created")}>
@@ -140,7 +144,62 @@ function LedgerPage() {
             Transfer
           </button>
         </Card>
+
+        <Card title="Recurring payment" icon={Repeat}>
+          <Select value={rec.from} onChange={(v) => setRec({ ...rec, from: v })} accounts={visible} placeholder="From" />
+          <Select value={rec.to} onChange={(v) => setRec({ ...rec, to: v })} accounts={visible} placeholder="To" />
+          <input className={inp} placeholder="Amount ($)" value={rec.amount} onChange={(e) => setRec({ ...rec, amount: e.target.value })} />
+          <input className={inp} type="number" placeholder="Every N seconds" value={rec.interval} onChange={(e) => setRec({ ...rec, interval: e.target.value })} />
+          <button className={btn} onClick={() => run(() => api("/recurring", { method: "POST", body: JSON.stringify({ from_account_id: rec.from, to_account_id: rec.to, amount_cents: Math.round(parseFloat(rec.amount) * 100), interval_seconds: parseInt(rec.interval, 10) }) }).then(() => setRec({ from: "", to: "", amount: "", interval: "5" })), "standing order started")}>
+            Start auto-pay
+          </button>
+        </Card>
       </div>
+
+      {/* standing orders */}
+      {recurring.length > 0 && (
+        <>
+          <h2 className="mt-8 mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            Standing orders <span className="ml-1 text-xs normal-case text-emerald-400">● paying automatically</span>
+          </h2>
+          <div className="overflow-hidden rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">From → To</th>
+                  <th className="px-4 py-2 text-right font-medium">Amount</th>
+                  <th className="px-4 py-2 font-medium">Every</th>
+                  <th className="px-4 py-2 text-right font-medium">Runs</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {recurring.map((r) => (
+                  <tr key={r.id} className="border-t">
+                    <td className="px-4 py-2">{nameOf(r.from_account_id)} <span className="text-muted-foreground">→</span> {nameOf(r.to_account_id)}</td>
+                    <td className="px-4 py-2 text-right font-mono tabular-nums">{dollars(r.amount_cents)}</td>
+                    <td className="px-4 py-2 text-muted-foreground">{r.interval_seconds}s</td>
+                    <td className="px-4 py-2 text-right font-mono tabular-nums">{r.runs}</td>
+                    <td className="px-4 py-2">
+                      <span className={`rounded-md px-2 py-0.5 text-xs ${r.active ? "bg-emerald-500/10 text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+                        {r.active ? "active" : "stopped"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {r.active && (
+                        <button className="text-xs text-red-400 hover:underline" onClick={() => run(() => api(`/recurring/${r.id}/stop`, { method: "POST" }), "standing order stopped")}>
+                          Stop
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {/* live activity feed */}
       <h2 className="mt-8 mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">

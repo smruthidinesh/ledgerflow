@@ -8,11 +8,19 @@ Invariants:
     money inside the system, so SUM over ALL entries is always 0 (reconciliation)
 """
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, func, select
 
-from app.models import Account, LedgerEntry, OutboxEvent, Transaction, TxnStatus
+from app.models import (
+    Account,
+    LedgerEntry,
+    OutboxEvent,
+    RecurringTransfer,
+    Transaction,
+    TxnStatus,
+)
 
 EXTERNAL_ACCOUNT_NAME = "external:world"
 
@@ -131,16 +139,28 @@ def transfer(session: Session, *, from_id, to_id, amount_cents, idempotency_key,
 
 
 def recent_activity(session: Session, limit: int = 50) -> list[dict]:
-    """Recent transactions as a human-readable feed: from -> to, amount, status, time."""
+    """Recent transactions as a human-readable feed: from -> to, amount, status, time.
+    N+1-free: one query for the txns, one for all their entries, one for account names."""
     txns = session.exec(
         select(Transaction).order_by(Transaction.created_at.desc()).limit(limit)
     ).all()
+    if not txns:
+        return []
+
+    txn_ids = [t.id for t in txns]
+    entries = session.exec(
+        select(LedgerEntry).where(LedgerEntry.transaction_id.in_(txn_ids))
+    ).all()
+    by_txn: dict[uuid.UUID, list[LedgerEntry]] = {}
+    for e in entries:
+        by_txn.setdefault(e.transaction_id, []).append(e)
+    names = {a.id: a.name for a in session.exec(select(Account)).all()}
+
     feed = []
     for t in txns:
-        entries = session.exec(select(LedgerEntry).where(LedgerEntry.transaction_id == t.id)).all()
-        names = {e.account_id: (session.get(Account, e.account_id).name if session.get(Account, e.account_id) else "?") for e in entries}
-        debit = next((e for e in entries if e.amount_cents < 0), None)
-        credit = next((e for e in entries if e.amount_cents > 0), None)
+        es = by_txn.get(t.id, [])
+        debit = next((e for e in es if e.amount_cents < 0), None)
+        credit = next((e for e in es if e.amount_cents > 0), None)
         feed.append({
             "id": str(t.id),
             "created_at": t.created_at,
@@ -151,6 +171,57 @@ def recent_activity(session: Session, limit: int = 50) -> list[dict]:
             "to_account": names.get(credit.account_id) if credit else None,
         })
     return feed
+
+
+def create_recurring(session: Session, *, from_id, to_id, amount_cents, interval_seconds) -> RecurringTransfer:
+    r = RecurringTransfer(
+        from_account_id=from_id, to_account_id=to_id,
+        amount_cents=amount_cents, interval_seconds=interval_seconds,
+    )
+    session.add(r)
+    session.commit()
+    session.refresh(r)
+    return r
+
+
+def list_recurring(session: Session):
+    return session.exec(select(RecurringTransfer).order_by(RecurringTransfer.created_at.desc())).all()
+
+
+def stop_recurring(session: Session, rid) -> RecurringTransfer | None:
+    r = session.get(RecurringTransfer, rid)
+    if r:
+        r.active = False
+        session.add(r)
+        session.commit()
+        session.refresh(r)
+    return r
+
+
+def run_due_recurring(session: Session) -> int:
+    """Executed by the scheduler each tick: run every active standing order whose
+    next_run_at has passed. Idempotent per run; stops a standing order if it runs dry."""
+    now = datetime.now(UTC)
+    due = session.exec(
+        select(RecurringTransfer).where(
+            RecurringTransfer.active == True,  # noqa: E712
+            RecurringTransfer.next_run_at <= now,
+        )
+    ).all()
+    for r in due:
+        try:
+            transfer(
+                session, from_id=r.from_account_id, to_id=r.to_account_id,
+                amount_cents=r.amount_cents, idempotency_key=f"rec:{r.id}:{r.runs}",
+                description="recurring payment",
+            )
+            r.runs += 1
+        except InsufficientFunds:
+            r.active = False  # stop the standing order when funds run out
+        r.next_run_at = now + timedelta(seconds=r.interval_seconds)
+        session.add(r)
+        session.commit()
+    return len(due)
 
 
 def _holds_account(session: Session) -> Account:

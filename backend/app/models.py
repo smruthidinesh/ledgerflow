@@ -240,3 +240,38 @@ class TransactionPublic(SQLModel):
     status: str
     description: str | None = None
     created_at: datetime | None = None
+
+
+class RecurringTransfer(SQLModel, table=True):
+    """A standing order: the scheduler executes this transfer every interval_seconds."""
+    __tablename__ = "recurring_transfer"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    from_account_id: uuid.UUID = Field(foreign_key="account.id", index=True)
+    to_account_id: uuid.UUID = Field(foreign_key="account.id")
+    amount_cents: int = Field(sa_type=BigInteger)
+    interval_seconds: int = Field(default=10)
+    active: bool = Field(default=True, index=True)
+    runs: int = Field(default=0)
+    next_run_at: datetime = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+    )
+    created_at: datetime | None = Field(
+        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+    )
+
+
+class RecurringCreate(SQLModel):
+    from_account_id: uuid.UUID
+    to_account_id: uuid.UUID
+    amount_cents: int = Field(gt=0)
+    interval_seconds: int = Field(default=10, ge=2, le=3600)
+
+
+class RecurringPublic(SQLModel):
+    id: uuid.UUID
+    from_account_id: uuid.UUID
+    to_account_id: uuid.UUID
+    amount_cents: int
+    interval_seconds: int
+    active: bool
+    runs: int
