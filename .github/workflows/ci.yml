@@ -53,9 +53,9 @@ jobs:
       SMTP_SSL: "false"
       EMAILS_FROM_EMAIL: info@example.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install uv (manages Python 3.14 automatically)
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
       - name: Run migrations
         working-directory: backend
         run: uv run alembic upgrade head
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install
