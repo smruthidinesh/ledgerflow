@@ -33,8 +33,9 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /api/v1/utils/health-check/
-    # Run migrations + seed the superuser, then serve on Render's injected $PORT.
-    dockerCommand: bash -c "bash scripts/prestart.sh && fastapi run app/main.py --host 0.0.0.0 --port ${PORT:-8000}"
+    # Migrations + seed, then serve on Render's $PORT. Logic lives in an absolute-path
+    # script so it's independent of Render's working directory / command parsing.
+    dockerCommand: bash /app/backend/scripts/start-render.sh
     envVars:
       - key: PROJECT_NAME
         value: LedgerFlow
