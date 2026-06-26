@@ -62,10 +62,14 @@ The **outbox relay** also drives the recurring-payment **scheduler**. See [`docs
 ## Run it locally
 
 ```bash
-# bring up Postgres, Redis, backend, relay, worker, frontend
+# 1. create your local env from the templates (placeholders work out of the box)
+cp .env.example .env
+cp frontend/.env.example frontend/.env
+
+# 2. bring up Postgres, Redis, backend, relay, worker, frontend
 docker compose up -d
 
-# seed the superuser (first run)
+# 3. seed the superuser (first run)
 docker compose exec backend python app/initial_data.py
 ```
 

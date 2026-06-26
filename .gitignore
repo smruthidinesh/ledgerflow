@@ -10,3 +10,7 @@ node_modules/
 backend/.venv/
 frontend/node_modules/
 __pycache__/
+
+# Local secrets / config — copy from the .example files, never commit real values
+.env
+frontend/.env
