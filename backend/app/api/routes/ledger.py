@@ -1,7 +1,8 @@
 import uuid
 
 from fastapi import APIRouter, Header, HTTPException
-from sqlmodel import select
+from fastapi.responses import PlainTextResponse
+from sqlmodel import func, select
 
 from app import ledger, reconciliation
 from app.api.deps import CurrentUser, SessionDep
@@ -10,7 +11,11 @@ from app.models import (
     AccountCreate,
     AccountPublic,
     DepositRequest,
+    LedgerEntry,
+    OutboxEvent,
+    OutboxStatus,
     TransactionPublic,
+    Transaction,
     TransferRequest,
 )
 
@@ -22,6 +27,38 @@ def _public(session: SessionDep, acc: Account) -> AccountPublic:
         id=acc.id, name=acc.name, currency=acc.currency,
         balance_cents=ledger.account_balance(session, acc.id), created_at=acc.created_at,
     )
+
+
+@router.get("/metrics", response_class=PlainTextResponse)
+def metrics(session: SessionDep):
+    """Prometheus metrics (public, for scraping). The drift gauge must stay 0."""
+    txns = session.exec(select(func.count()).select_from(Transaction)).one()
+    accts = session.exec(select(func.count()).select_from(Account)).one()
+    volume = session.exec(
+        select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0)).where(LedgerEntry.amount_cents > 0)
+    ).one()
+    drift = session.exec(select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0))).one()
+    pending = session.exec(
+        select(func.count()).select_from(OutboxEvent).where(OutboxEvent.status == OutboxStatus.pending.value)
+    ).one()
+    lines = [
+        "# HELP ledger_transactions_total Total ledger transactions",
+        "# TYPE ledger_transactions_total counter",
+        f"ledger_transactions_total {txns}",
+        "# HELP ledger_accounts_total Total accounts",
+        "# TYPE ledger_accounts_total gauge",
+        f"ledger_accounts_total {accts}",
+        "# HELP ledger_volume_cents_total Total credited volume (cents)",
+        "# TYPE ledger_volume_cents_total counter",
+        f"ledger_volume_cents_total {int(volume)}",
+        "# HELP ledger_drift_cents Global balance drift — must be 0",
+        "# TYPE ledger_drift_cents gauge",
+        f"ledger_drift_cents {int(drift)}",
+        "# HELP ledger_outbox_pending Outbox events awaiting publish",
+        "# TYPE ledger_outbox_pending gauge",
+        f"ledger_outbox_pending {pending}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 @router.post("/accounts", response_model=AccountPublic)
