@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Header, HTTPException
 from sqlmodel import select
 
-from app import ledger
+from app import ledger, reconciliation
 from app.api.deps import CurrentUser, SessionDep
 from app.models import (
     Account,
@@ -63,6 +63,11 @@ def deposit(
     return TransactionPublic(
         id=txn.id, status=txn.status, description=txn.description, created_at=txn.created_at
     )
+
+
+@router.get("/reconciliation")
+def reconciliation_report(session: SessionDep, current_user: CurrentUser):
+    return reconciliation.reconcile(session)
 
 
 @router.post("/transfers", response_model=TransactionPublic)
