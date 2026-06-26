@@ -61,11 +61,11 @@ services:
         fromDatabase: { name: ledgerflow-db, property: password }
       - key: REDIS_URL
         fromService: { type: redis, name: ledgerflow-redis, property: connectionString }
-      # CORS / links — update these if your frontend gets a different .onrender.com URL
+      # CORS / links — must match the frontend's actual .onrender.com URL
       - key: FRONTEND_HOST
-        value: https://ledgerflow-frontend.onrender.com
+        value: https://ledgerflow-frontend-yvk3.onrender.com
       - key: BACKEND_CORS_ORIGINS
-        value: https://ledgerflow-frontend.onrender.com
+        value: https://ledgerflow-frontend-yvk3.onrender.com
 
   # --- Frontend: built with Vite, served as a static SPA ---
   - type: web
@@ -76,7 +76,7 @@ services:
     envVars:
       # Baked into the bundle at build time — must point at the backend's public URL.
       - key: VITE_API_URL
-        value: https://ledgerflow-backend.onrender.com
+        value: https://ledgerflow-backend-5foa.onrender.com
     routes:
       - type: rewrite
         source: /*
