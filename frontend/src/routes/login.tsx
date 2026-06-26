@@ -44,7 +44,7 @@ export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
       {
-        title: "Log In - FastAPI Template",
+        title: "Log In - LedgerFlow",
       },
     ],
   }),
@@ -75,7 +75,7 @@ function Login() {
           className="flex flex-col gap-6"
         >
           <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-2xl font-bold">Login to your account</h1>
+            <h1 className="text-2xl font-bold">LedgerFlow</h1><p className="text-muted-foreground text-sm">A money-movement service on an immutable double-entry ledger. Sign in to try the live demo.</p>
           </div>
 
           <div className="grid gap-4">

@@ -1,30 +1,124 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute } from "@tanstack/react-router"
+import {
+  ArrowRight,
+  CheckCircle2,
+  Radio,
+  RefreshCw,
+  Scale,
+  ShieldCheck,
+} from "lucide-react"
 
 import useAuth from "@/hooks/useAuth"
 
 export const Route = createFileRoute("/_layout/")({
   component: Dashboard,
-  head: () => ({
-    meta: [
-      {
-        title: "Dashboard - FastAPI Template",
-      },
-    ],
-  }),
+  head: () => ({ meta: [{ title: "LedgerFlow" }] }),
 })
 
-function Dashboard() {
-  const { user: currentUser } = useAuth()
+const guarantees = [
+  { icon: ShieldCheck, title: "No double-charge", body: "Every transfer carries an idempotency key — retries never move money twice." },
+  { icon: Scale, title: "Always balanced", body: "Money stored as integer cents; every transaction's debits equal its credits." },
+  { icon: RefreshCw, title: "Safe multi-step", body: "A transfer that fails partway rolls back cleanly (SAGA + compensation)." },
+  { icon: Radio, title: "No lost events", body: "Each transfer emits an event via a transactional outbox → Redis Streams." },
+  { icon: CheckCircle2, title: "Provably no drift", body: "A reconciliation check proves the whole ledger nets to exactly zero." },
+]
 
+const steps = [
+  "Open the Ledger page",
+  "Create two accounts (e.g. Alice & Bob)",
+  "Deposit $100 to Alice",
+  "Transfer $30 → Bob and watch balances update",
+  "See the “Reconciliation: BALANCED ✓” badge",
+]
+
+function Dashboard() {
+  const { user } = useAuth()
   return (
-    <div>
-      <div>
-        <h1 className="text-2xl truncate max-w-sm">
-          Hi, {currentUser?.full_name || currentUser?.email} 👋
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      {/* hero */}
+      <div className="rounded-3xl border bg-gradient-to-br from-indigo-500/10 via-violet-500/5 to-transparent p-8 md:p-12">
+        <span className="inline-flex items-center gap-1 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-400">
+          ● Fintech-grade ledger
+        </span>
+        <h1 className="mt-4 text-4xl md:text-5xl font-bold tracking-tight">
+          <span className="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">
+            LedgerFlow
+          </span>
         </h1>
-        <p className="text-muted-foreground">
-          Welcome back, nice to see you again!!!
+        <p className="mt-3 max-w-2xl text-lg text-muted-foreground">
+          A money-movement service built on an <b className="text-foreground">immutable double-entry ledger</b> with
+          an event-driven core — idempotent transfers, SAGA compensation, and a reconciliation guarantee.
         </p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to="/ledger"
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 font-medium text-white transition hover:bg-indigo-400"
+          >
+            Open the Ledger <ArrowRight className="h-4 w-4" />
+          </Link>
+          <a
+            href="http://localhost:8000/docs"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-xl border px-5 py-2.5 font-medium transition hover:bg-accent"
+          >
+            API docs
+          </a>
+        </div>
+        {user?.email && (
+          <p className="mt-4 text-sm text-muted-foreground">Signed in as {user.email}</p>
+        )}
+      </div>
+
+      {/* guarantees */}
+      <h2 className="mt-10 mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        Correctness guarantees
+      </h2>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {guarantees.map((g) => (
+          <div key={g.title} className="rounded-2xl border bg-card p-5 transition hover:border-indigo-500/40 hover:shadow-lg">
+            <g.icon className="h-6 w-6 text-indigo-400" />
+            <h3 className="mt-3 font-semibold">{g.title}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{g.body}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* how to try */}
+      <div className="mt-10 grid gap-6 md:grid-cols-2">
+        <div className="rounded-2xl border bg-card p-6">
+          <h2 className="font-semibold">Try it in 60 seconds</h2>
+          <ol className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {steps.map((s, i) => (
+              <li key={s} className="flex gap-3">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 text-xs font-semibold text-indigo-400">
+                  {i + 1}
+                </span>
+                {s}
+              </li>
+            ))}
+          </ol>
+          <Link to="/ledger" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-indigo-400 hover:underline">
+            Go to the Ledger <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+        <div className="rounded-2xl border bg-card p-6">
+          <h2 className="font-semibold">How it works</h2>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Transfers are ACID and synchronous; reactions are event-driven and eventual.
+          </p>
+          <pre className="mt-3 overflow-x-auto rounded-lg bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+{`POST /transfers
+  └─ ledger entries + outbox event   (one DB txn)
+       └─ relay → Redis Stream
+             └─ worker handles event (async)`}
+          </pre>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs">
+            {["FastAPI", "PostgreSQL", "SQLModel", "Redis Streams", "Docker"].map((t) => (
+              <span key={t} className="rounded-md border px-2 py-1 text-muted-foreground">{t}</span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
