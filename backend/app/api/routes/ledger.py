@@ -32,6 +32,21 @@ def _public(session: SessionDep, acc: Account) -> AccountPublic:
     )
 
 
+def _require_admin(current_user: CurrentUser) -> None:
+    """Operator-only views (system-wide event log, infra stats, demo seeding) are
+    restricted to superusers. Regular customers only ever see their own wallets."""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="operator access required")
+
+
+def _my_account_ids(session: SessionDep, current_user: CurrentUser):
+    """None for superusers (see everything); else the caller's own account ids, used
+    to scope feeds so a customer never sees another tenant's transactions."""
+    if current_user.is_superuser:
+        return None
+    return list(session.exec(select(Account.id).where(Account.owner_id == current_user.id)).all())
+
+
 def _owned(session: SessionDep, current_user: CurrentUser, account_id) -> Account:
     """Load an account and enforce tenant isolation: a non-superuser may only touch
     accounts they own. Closes IDOR — you can't read or move money in another
@@ -126,7 +141,7 @@ def transactions(
     session: SessionDep, current_user: CurrentUser,
     limit: int = Query(50, ge=1, le=200),  # cap: attacker can't request an unbounded scan
 ):
-    return ledger.recent_activity(session, limit=limit)
+    return ledger.recent_activity(session, limit=limit, account_ids=_my_account_ids(session, current_user))
 
 
 @router.get("/events")
@@ -136,7 +151,9 @@ def events(
 ):
     """The event log straight from the transactional outbox. Each row was written in
     the SAME DB transaction as its ledger entries (status 'pending'), then the relay
-    publishes it to the Redis stream and flips it to 'published' — visible here live."""
+    publishes it to the Redis stream and flips it to 'published' — visible here live.
+    System-wide operator view → superuser only."""
+    _require_admin(current_user)
     rows = session.exec(
         select(OutboxEvent).order_by(OutboxEvent.created_at.desc()).limit(limit)
     ).all()
@@ -157,7 +174,9 @@ def events(
 @router.get("/stream-info")
 def stream_info(current_user: CurrentUser):
     """Live state of the Redis stream the events flow through — proves delivery:
-    how many events reached the bus and whether the worker is keeping up."""
+    how many events reached the bus and whether the worker is keeping up.
+    Operator/infra view → superuser only."""
+    _require_admin(current_user)
     from app.core.eventbus import GROUP, STREAM, get_redis
 
     info = {"stream": STREAM, "group": GROUP, "length": 0, "delivered": 0, "pending": 0, "consumers": 0}
@@ -176,7 +195,7 @@ def stream_info(current_user: CurrentUser):
 
 @router.get("/recurring", response_model=list[RecurringPublic])
 def list_recurring(session: SessionDep, current_user: CurrentUser):
-    return ledger.list_recurring(session)
+    return ledger.list_recurring(session, account_ids=_my_account_ids(session, current_user))
 
 
 @router.post("/recurring", response_model=RecurringPublic)
@@ -206,7 +225,10 @@ def demo_seed(session: SessionDep, current_user: CurrentUser):
     """Spin up a believable neobank scenario so the dashboard, activity feed, and
     event log all come alive: customer wallets, payday deposits, a peer-to-peer
     transfer, and a card purchase at a merchant. Re-runnable — each call adds fresh
-    activity (unique idempotency keys) while reusing the same wallets."""
+    activity (unique idempotency keys) while reusing the same wallets.
+    Seeding/admin tool → superuser only."""
+    _require_admin(current_user)
+
     def wallet(name: str) -> Account:
         acc = session.exec(
             select(Account).where(Account.name == name, Account.owner_id == current_user.id)

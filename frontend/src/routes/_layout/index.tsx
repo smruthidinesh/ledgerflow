@@ -24,11 +24,11 @@ const guarantees = [
 ]
 
 const steps = [
-  "Open the Ledger page",
-  "Create two accounts (e.g. Alice & Bob)",
-  "Deposit $100 to Alice",
-  "Transfer $30 → Bob and watch balances update",
-  "See the “Reconciliation: BALANCED ✓” badge",
+  "Open the Ledger page and click “Load demo data”",
+  "Watch the wallets, balances and activity feed fill in",
+  "Set up a recurring payment — money then moves on its own",
+  "Open Events to watch each event go pending → published",
+  "Open Operations to see drift held at exactly $0.00",
 ]
 
 function Dashboard() {
@@ -46,8 +46,13 @@ function Dashboard() {
           </span>
         </h1>
         <p className="mt-3 max-w-2xl text-lg text-muted-foreground">
-          A money-movement service built on an <b className="text-foreground">immutable double-entry ledger</b> with
-          an event-driven core — idempotent transfers, SAGA compensation, and a reconciliation guarantee.
+          The money engine inside a <b className="text-foreground">digital wallet</b>. Like the core of Venmo or a neobank:
+          people hold balances, get paid, send money to friends, and pay subscriptions — LedgerFlow is the part that
+          moves every cent <b className="text-foreground">correctly, and never loses track</b>.
+        </p>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          Under the hood: an immutable double-entry ledger with an event-driven core — idempotent transfers,
+          SAGA compensation, a transactional outbox, and a reconciliation guarantee that the books always balance.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
@@ -56,14 +61,12 @@ function Dashboard() {
           >
             Open the Ledger <ArrowRight className="h-4 w-4" />
           </Link>
-          <a
-            href="http://localhost:8000/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center rounded-xl border px-5 py-2.5 font-medium transition hover:bg-accent"
+          <Link
+            to="/events"
+            className="inline-flex items-center gap-2 rounded-xl border px-5 py-2.5 font-medium transition hover:bg-accent"
           >
-            API docs
-          </a>
+            <Radio className="h-4 w-4" /> See the live event flow
+          </Link>
         </div>
         {user?.email && (
           <p className="mt-4 text-sm text-muted-foreground">Signed in as {user.email}</p>

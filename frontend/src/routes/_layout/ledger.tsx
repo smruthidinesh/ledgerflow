@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { ArrowRight, Landmark, Plus, Repeat, Send } from "lucide-react"
+import { ArrowRight, Landmark, Plus, Repeat, Send, Sparkles } from "lucide-react"
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 
@@ -70,14 +70,22 @@ function LedgerPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-8">
-      <div className="flex items-center gap-3">
-        <Landmark className="h-7 w-7 text-indigo-400" />
-        <div>
-          <h1 className="text-2xl font-bold">Ledger</h1>
-          <p className="text-sm text-muted-foreground">
-            Create accounts, deposit, and transfer — every move is balanced double-entry bookkeeping.
-          </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Landmark className="h-7 w-7 text-indigo-400" />
+          <div>
+            <h1 className="text-2xl font-bold">Ledger</h1>
+            <p className="text-sm text-muted-foreground">
+              Create wallets, deposit, and transfer — every move is balanced double-entry bookkeeping.
+            </p>
+          </div>
         </div>
+        <button
+          className="flex shrink-0 items-center gap-2 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-sm font-medium text-indigo-300 transition hover:bg-indigo-500/20"
+          onClick={() => run(() => api("/demo-seed", { method: "POST" }), "demo data loaded — see the activity & event log")}
+        >
+          <Sparkles className="h-4 w-4" /> Load demo data
+        </button>
       </div>
 
       {recon && (

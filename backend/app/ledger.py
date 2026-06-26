@@ -138,12 +138,21 @@ def transfer(session: Session, *, from_id, to_id, amount_cents, idempotency_key,
     )
 
 
-def recent_activity(session: Session, limit: int = 50) -> list[dict]:
+def recent_activity(session: Session, limit: int = 50, account_ids=None) -> list[dict]:
     """Recent transactions as a human-readable feed: from -> to, amount, status, time.
-    N+1-free: one query for the txns, one for all their entries, one for account names."""
-    txns = session.exec(
-        select(Transaction).order_by(Transaction.created_at.desc()).limit(limit)
-    ).all()
+    N+1-free: one query for the txns, one for all their entries, one for account names.
+    If account_ids is given, only transactions touching those accounts are returned
+    (per-user scoping — prevents cross-tenant disclosure)."""
+    q = select(Transaction).order_by(Transaction.created_at.desc())
+    if account_ids is not None:
+        if not account_ids:
+            return []
+        q = q.where(
+            Transaction.id.in_(
+                select(LedgerEntry.transaction_id).where(LedgerEntry.account_id.in_(account_ids))
+            )
+        )
+    txns = session.exec(q.limit(limit)).all()
     if not txns:
         return []
 
@@ -184,8 +193,13 @@ def create_recurring(session: Session, *, from_id, to_id, amount_cents, interval
     return r
 
 
-def list_recurring(session: Session):
-    return session.exec(select(RecurringTransfer).order_by(RecurringTransfer.created_at.desc())).all()
+def list_recurring(session: Session, account_ids=None):
+    q = select(RecurringTransfer).order_by(RecurringTransfer.created_at.desc())
+    if account_ids is not None:
+        if not account_ids:
+            return []
+        q = q.where(RecurringTransfer.from_account_id.in_(account_ids))
+    return session.exec(q).all()
 
 
 def stop_recurring(session: Session, rid) -> RecurringTransfer | None:

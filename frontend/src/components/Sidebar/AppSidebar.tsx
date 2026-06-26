@@ -1,4 +1,4 @@
-import { Briefcase, Home, Landmark, Users } from "lucide-react"
+import { Activity, Gauge, Home, Landmark, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -14,15 +14,21 @@ import { User } from "./User"
 
 const baseItems: Item[] = [
   { icon: Home, title: "Dashboard", path: "/" },
-  { icon: Briefcase, title: "Items", path: "/items" },
   { icon: Landmark, title: "Ledger", path: "/ledger" },
+]
+
+// Operator dashboards — system-wide views, superuser only
+const operatorItems: Item[] = [
+  { icon: Gauge, title: "Operations", path: "/operations" },
+  { icon: Activity, title: "Events", path: "/events" },
+  { icon: Users, title: "Admin", path: "/admin" },
 ]
 
 export function AppSidebar() {
   const { user: currentUser } = useAuth()
 
   const items = currentUser?.is_superuser
-    ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
+    ? [...baseItems, ...operatorItems]
     : baseItems
 
   return (
