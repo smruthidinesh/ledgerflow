@@ -135,6 +135,48 @@ services:
     ports:
       - 9323:9323
 
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    ports:
+      - "6379:6379"
+
+  relay:
+    restart: "no"
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.outbox_relay"]
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_SERVER=db
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/backend/app
+    networks:
+      - default
+
+  worker:
+    restart: "no"
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.event_worker"]
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/backend/app
+    networks:
+      - default
+
 networks:
   traefik-public:
     # For local dev, don't expect an external Traefik network
