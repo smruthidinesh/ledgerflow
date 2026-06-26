@@ -1,0 +1,21 @@
+# Keep the Docker build context small & deterministic (Render builds from repo root).
+# Without this, node_modules (~385MB), virtualenvs, and git history bloat every build.
+.git
+.github
+**/node_modules
+node_modules
+.venv
+backend/.venv
+**/__pycache__
+**/*.pyc
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+frontend/blob-report
+.env
+frontend/.env
+*.log
+.vscode
+.idea
+docs
+img
