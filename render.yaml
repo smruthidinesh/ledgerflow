@@ -1,0 +1,82 @@
+# Render Blueprint for LedgerFlow — https://render.com/docs/blueprint-spec
+#
+# Provisions, on Render's free tier:
+#   • a managed PostgreSQL database          (the ledger of record)
+#   • a managed Redis / Key Value instance   (the ledger.events stream)
+#   • the FastAPI backend as a Docker web service, with the outbox relay + event
+#     worker running in-process (RUN_EMBEDDED_WORKERS) since free tier has no
+#     standalone Background Workers — in production these would be separate services
+#   • the React frontend as a static site
+#
+# To deploy: push this repo to GitHub, then Render Dashboard → New → Blueprint →
+# pick the repo. Render reads this file and creates everything. See DEPLOY.md.
+
+databases:
+  - name: ledgerflow-db
+    databaseName: ledgerflow
+    user: ledgerflow
+    plan: free
+
+services:
+  # --- Redis / Key Value: the event bus stream lives here ---
+  - type: redis
+    name: ledgerflow-redis
+    plan: free
+    ipAllowList: [] # internal-only (reachable from the backend, not the public internet)
+    maxmemoryPolicy: noeviction # never drop events under memory pressure
+
+  # --- Backend: FastAPI + migrations + embedded relay/worker ---
+  - type: web
+    name: ledgerflow-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/utils/health-check/
+    # Run migrations + seed the superuser, then serve on Render's injected $PORT.
+    dockerCommand: bash -c "bash scripts/prestart.sh && fastapi run app/main.py --host 0.0.0.0 --port ${PORT:-8000}"
+    envVars:
+      - key: PROJECT_NAME
+        value: LedgerFlow
+      - key: ENVIRONMENT
+        value: production # production refuses 'changethis' secrets — all secrets below are real
+      - key: RUN_EMBEDDED_WORKERS
+        value: "true" # run the outbox relay (and recurring scheduler) + event worker in-process
+      - key: SECRET_KEY
+        generateValue: true # Render generates a strong random key
+      - key: FIRST_SUPERUSER
+        value: admin@example.com
+      - key: FIRST_SUPERUSER_PASSWORD
+        sync: false # you set this in the Render dashboard at deploy time (remember it — it's your login)
+      - key: POSTGRES_SERVER
+        fromDatabase: { name: ledgerflow-db, property: host }
+      - key: POSTGRES_PORT
+        fromDatabase: { name: ledgerflow-db, property: port }
+      - key: POSTGRES_DB
+        fromDatabase: { name: ledgerflow-db, property: database }
+      - key: POSTGRES_USER
+        fromDatabase: { name: ledgerflow-db, property: user }
+      - key: POSTGRES_PASSWORD
+        fromDatabase: { name: ledgerflow-db, property: password }
+      - key: REDIS_URL
+        fromService: { type: redis, name: ledgerflow-redis, property: connectionString }
+      # CORS / links — update these if your frontend gets a different .onrender.com URL
+      - key: FRONTEND_HOST
+        value: https://ledgerflow-frontend.onrender.com
+      - key: BACKEND_CORS_ORIGINS
+        value: https://ledgerflow-frontend.onrender.com
+
+  # --- Frontend: built with Vite, served as a static SPA ---
+  - type: web
+    name: ledgerflow-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      # Baked into the bundle at build time — must point at the backend's public URL.
+      - key: VITE_API_URL
+        value: https://ledgerflow-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html # SPA fallback so client-side routes (/ledger, /events) work

@@ -1,233 +1,101 @@
-# Full Stack FastAPI Template
+# LedgerFlow
 
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Docker+Compose%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Docker%20Compose/badge.svg" alt="Test Docker Compose"></a>
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Backend%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Backend/badge.svg" alt="Test Backend"></a>
-<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/fastapi/full-stack-fastapi-template" target="_blank"><img src="https://coverage-badge.samuelcolvin.workers.dev/fastapi/full-stack-fastapi-template.svg" alt="Coverage"></a>
+**The money engine inside a digital wallet** — an immutable, double-entry payment ledger with an event-driven core.
 
-## Technology Stack and Features
+Like the part of Venmo or a neobank that actually moves money: people hold balances, get paid, send money to each other, and pay subscriptions. LedgerFlow is the backend that does that **correctly** — every cent accounted for, no double-charges, nothing lost, and a mathematical guarantee that the books always balance.
 
-- ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-  - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
-  - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-  - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
-- 🚀 [React](https://react.dev) for the frontend.
-  - 💃 Using TypeScript, hooks, [Vite](https://vitejs.dev), and other parts of a modern frontend stack.
-  - 🎨 [Tailwind CSS](https://tailwindcss.com) and [shadcn/ui](https://ui.shadcn.com) for the frontend components.
-  - 🤖 An automatically generated frontend client.
-  - 🧪 [Playwright](https://playwright.dev) for End-to-End testing.
-  - 🦇 Dark mode support.
-- 🐋 [Docker Compose](https://www.docker.com) for development and production.
-- 🔒 Secure password hashing by default.
-- 🔑 JWT (JSON Web Token) authentication.
-- 📫 Email based password recovery.
-- 📬 [Mailcatcher](https://mailcatcher.me) for local email testing during development.
-- ✅ Tests with [Pytest](https://pytest.org).
-- 📞 [Traefik](https://traefik.io) as a reverse proxy / load balancer.
-- 🚢 Deployment instructions using Docker Compose, including how to set up a frontend Traefik proxy to handle automatic HTTPS certificates.
-- 🏭 CI (continuous integration) and CD (continuous deployment) based on GitHub Actions.
+[![CI](https://github.com/smruthidinesh/ledgerflow/actions/workflows/ci.yml/badge.svg)](https://github.com/smruthidinesh/ledgerflow/actions/workflows/ci.yml)
 
-### Dashboard Login
+> 🔗 **Live demo:** _add your Render URL here after deploying_ · log in with the admin credentials you set, or click **Load demo data**.
 
-[![API docs](img/login.png)](https://github.com/fastapi/full-stack-fastapi-template)
+---
 
-### Dashboard - Admin
+## Why it's interesting
 
-[![API docs](img/dashboard.png)](https://github.com/fastapi/full-stack-fastapi-template)
+Most CRUD apps store a `balance` column and update it. That silently corrupts the moment two requests race, a retry fires twice, or a multi-step payment fails halfway. LedgerFlow is built the way real payment systems are, around a few guarantees:
 
-### Dashboard - Items
+| Guarantee | How |
+|---|---|
+| 🧮 **Always balanced** | Money is **integer cents** recorded as immutable, append-only **double-entry** rows. Every transaction's debits and credits sum to exactly zero. A balance is *derived* (`SUM(entries)`), never stored. |
+| 🛡️ **No double-charge** | Every money movement carries an **idempotency key** with a unique DB constraint. Retried requests return the original transaction instead of moving money twice. |
+| 🔁 **Safe multi-step transfers** | Multi-step flows run as a **SAGA**: reserve → capture, with **compensation** that releases funds back if a later step fails. No partial states. |
+| 📡 **No lost events** | Each movement writes a domain event to a **transactional outbox** in the *same* DB transaction, then a relay publishes it to **Redis Streams** for at-least-once delivery. A Redis outage delays events; it never loses them. |
+| ✅ **Provably no drift** | A **reconciliation** job re-proves that the entire ledger nets to exactly `$0.00` — surfaced live on the Operations dashboard. |
 
-[![API docs](img/dashboard-items.png)](https://github.com/fastapi/full-stack-fastapi-template)
+There's also a **recurring-payments** scheduler (standing orders that execute on their own) and **role-based access** (customers see only their own wallets; operators see system-wide dashboards).
 
-### Dashboard - Dark Mode
+## Architecture
 
-[![API docs](img/dashboard-dark.png)](https://github.com/fastapi/full-stack-fastapi-template)
-
-### Interactive API Documentation
-
-[![API docs](img/docs.png)](https://github.com/fastapi/full-stack-fastapi-template)
-
-## How To Use It
-
-You can **just fork or clone** this repository and use it as is.
-
-✨ It just works. ✨
-
-### How to Use a Private Repository
-
-If you want to have a private repository, GitHub won't allow you to simply fork it as it doesn't allow changing the visibility of forks.
-
-But you can do the following:
-
-- Create a new GitHub repo, for example `my-full-stack`.
-- Clone this repository manually, set the name with the name of the project you want to use, for example `my-full-stack`:
-
-```bash
-git clone git@github.com:fastapi/full-stack-fastapi-template.git my-full-stack
+```
+                         ┌─────────────────────────────────────────────┐
+   React SPA  ──HTTPS──▶ │  FastAPI                                     │
+   (wallets,             │   • /ledger  double-entry posting            │
+    ops & events         │   • idempotency keys, row locks (SELECT…FOR  │
+    dashboards)          │     UPDATE), SAGA + compensation             │
+                         │                                              │
+                         │   one DB transaction writes BOTH:            │
+                         │   ledger entries ──┐      ┌── outbox event    │
+                         └────────────────────┼──────┼───────────────────┘
+                                              ▼      ▼
+                                   ┌──────────────────────────┐
+                                   │ PostgreSQL                │
+                                   │  account · ledger_entry · │
+                                   │  ledger_transaction ·     │
+                                   │  outbox_event · recurring │
+                                   └──────────┬────────────────┘
+                                              │ relay polls pending events
+                                              ▼
+                                   ┌──────────────────────────┐      ┌──────────────┐
+                                   │ Redis Stream              │────▶ │ Event worker │
+                                   │  "ledger.events"          │ XACK │ consumer grp │
+                                   └──────────────────────────┘      └──────────────┘
 ```
 
-- Enter into the new directory:
+The **outbox relay** also drives the recurring-payment **scheduler**. See [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) for the full, beginner-to-advanced walkthrough.
+
+## Tech stack
+
+**Backend:** Python 3.14 · FastAPI · SQLModel / SQLAlchemy · PostgreSQL · Redis Streams · Alembic · `uv`
+**Frontend:** React 19 · Vite · TanStack Router · Tailwind · shadcn/Radix
+**Infra:** Docker Compose · GitHub Actions CI · Prometheus metrics · deploy on Render
+
+## Run it locally
 
 ```bash
-cd my-full-stack
+# bring up Postgres, Redis, backend, relay, worker, frontend
+docker compose up -d
+
+# seed the superuser (first run)
+docker compose exec backend python app/initial_data.py
 ```
 
-- Set the new origin to your new repository, copy it from the GitHub interface, for example:
+- Frontend: http://localhost:5173 — log in as `admin@example.com` / `changethis`, then click **Load demo data**.
+- API docs: http://localhost:8000/docs
+- Metrics: http://localhost:8000/api/v1/ledger/metrics
+
+## Tests
 
 ```bash
-git remote set-url origin git@github.com:octocat/my-full-stack.git
+docker compose exec backend python -m pytest tests/ -q
 ```
 
-- Add this repo as another "remote" to allow you to get updates later:
+Includes a concurrency test that fires simultaneous transfers against one account and asserts it can **never** overdraft.
 
-```bash
-git remote add upstream git@github.com:fastapi/full-stack-fastapi-template.git
-```
+## The three things to look at
 
-- Push the code to your new repository:
+1. **Ledger** — create wallets, deposit, transfer, set up a recurring payment, watch the live activity feed.
+2. **Operations** (operator) — total volume, the **drift gauge held at $0.00**, and Redis stream/consumer health.
+3. **Events** (operator) — a flow diagram of the event-driven pipeline plus a **live event log** where you watch each event go `pending → published`.
 
-```bash
-git push -u origin master
-```
+## Deploy
 
-### Update From the Original Template
+One-click-ish via the [Render blueprint](render.yaml) — see [`DEPLOY.md`](DEPLOY.md).
 
-After cloning the repository, and after doing changes, you might want to get the latest changes from this original template.
+## Docs
 
-- Make sure you added the original repository as a remote, you can check it with:
+- [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) — full explanation from fundamentals to advanced, with examples, **and how to explain it in an interview**.
+- [`DEPLOY.md`](DEPLOY.md) — deploying to Render and inspecting the production database.
 
-```bash
-git remote -v
+---
 
-origin    git@github.com:octocat/my-full-stack.git (fetch)
-origin    git@github.com:octocat/my-full-stack.git (push)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (fetch)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (push)
-```
-
-- Pull the latest changes without merging:
-
-```bash
-git pull --no-commit upstream master
-```
-
-This will download the latest changes from this template without committing them, that way you can check everything is right before committing.
-
-- If there are conflicts, solve them in your editor.
-
-- Once you are done, commit the changes:
-
-```bash
-git merge --continue
-```
-
-### Configure
-
-You can then update configs in the `.env` files to customize your configurations.
-
-Before deploying it, make sure you change at least the values for:
-
-- `SECRET_KEY`
-- `FIRST_SUPERUSER_PASSWORD`
-- `POSTGRES_PASSWORD`
-
-You can (and should) pass these as environment variables from secrets.
-
-Read the [deployment.md](./deployment.md) docs for more details.
-
-### Generate Secret Keys
-
-Some environment variables in the `.env` file have a default value of `changethis`.
-
-You have to change them with a secret key, to generate secret keys you can run the following command:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-Copy the content and use that as password / secret key. And run that again to generate another secure key.
-
-## How To Use It - Alternative With Copier
-
-This repository also supports generating a new project using [Copier](https://copier.readthedocs.io).
-
-It will copy all the files, ask you configuration questions, and update the `.env` files with your answers.
-
-### Install Copier
-
-You can install Copier with:
-
-```bash
-pip install copier
-```
-
-Or better, if you have [`pipx`](https://pipx.pypa.io/), you can run it with:
-
-```bash
-pipx install copier
-```
-
-**Note**: If you have `pipx`, installing copier is optional, you could run it directly.
-
-### Generate a Project With Copier
-
-Decide a name for your new project's directory, you will use it below. For example, `my-awesome-project`.
-
-Go to the directory that will be the parent of your project, and run the command with your project's name:
-
-```bash
-copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
-```
-
-If you have `pipx` and you didn't install `copier`, you can run it directly:
-
-```bash
-pipx run copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
-```
-
-**Note** the `--trust` option is necessary to be able to execute a [post-creation script](https://github.com/fastapi/full-stack-fastapi-template/blob/master/.copier/update_dotenv.py) that updates your `.env` files.
-
-### Input Variables
-
-Copier will ask you for some data, you might want to have at hand before generating the project.
-
-But don't worry, you can just update any of that in the `.env` files afterwards.
-
-The input variables, with their default values (some auto generated) are:
-
-- `project_name`: (default: `"FastAPI Project"`) The name of the project, shown to API users (in .env).
-- `stack_name`: (default: `"fastapi-project"`) The name of the stack used for Docker Compose labels and project name (no spaces, no periods) (in .env).
-- `secret_key`: (default: `"changethis"`) The secret key for the project, used for security, stored in .env, you can generate one with the method above.
-- `first_superuser`: (default: `"admin@example.com"`) The email of the first superuser (in .env).
-- `first_superuser_password`: (default: `"changethis"`) The password of the first superuser (in .env).
-- `smtp_host`: (default: "") The SMTP server host to send emails, you can set it later in .env.
-- `smtp_user`: (default: "") The SMTP server user to send emails, you can set it later in .env.
-- `smtp_password`: (default: "") The SMTP server password to send emails, you can set it later in .env.
-- `emails_from_email`: (default: `"info@example.com"`) The email account to send emails from, you can set it later in .env.
-- `postgres_password`: (default: `"changethis"`) The password for the PostgreSQL database, stored in .env, you can generate one with the method above.
-- `sentry_dsn`: (default: "") The DSN for Sentry, if you are using it, you can set it later in .env.
-
-## Backend Development
-
-Backend docs: [backend/README.md](./backend/README.md).
-
-## Frontend Development
-
-Frontend docs: [frontend/README.md](./frontend/README.md).
-
-## Deployment
-
-Deployment docs: [deployment.md](./deployment.md).
-
-## Development
-
-General development docs: [development.md](./development.md).
-
-This includes using Docker Compose, custom local domains, `.env` configurations, etc.
-
-## Release Notes
-
-Check the file [release-notes.md](./release-notes.md).
-
-## License
-
-The Full Stack FastAPI Template is licensed under the terms of the MIT license.
+<sub>Built on the [full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template) foundation; the ledger domain, event-driven core, recurring payments, dashboards, and access model are bespoke.</sub>
