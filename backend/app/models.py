@@ -140,8 +140,8 @@ class NewPassword(SQLModel):
 #   money is integer cents · balance = SUM(entries) · per transfer SUM == 0
 # ============================================================
 class TxnStatus(str, enum.Enum):
-    pending = "pending"          # SAGA in progress
-    posted = "posted"            # committed; debits == credits
+    pending = "pending"  # SAGA in progress
+    posted = "posted"  # committed; debits == credits
     failed = "failed"
     compensated = "compensated"  # rolled back via compensation
 
@@ -156,9 +156,12 @@ class Account(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(max_length=120, index=True)
     currency: str = Field(default="USD", max_length=3)
-    owner_id: uuid.UUID | None = Field(default=None, foreign_key="user.id", nullable=True)
+    owner_id: uuid.UUID | None = Field(
+        default=None, foreign_key="user.id", nullable=True
+    )
     created_at: datetime | None = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
     # balance is DERIVED, never stored: SUM(ledger_entry.amount_cents) WHERE account_id = id
 
@@ -167,28 +170,40 @@ class Transaction(SQLModel, table=True):
     __tablename__ = "ledger_transaction"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     # idempotency: a retried transfer with the same key can never create a 2nd txn
-    idempotency_key: str | None = Field(default=None, unique=True, index=True, max_length=255)
+    idempotency_key: str | None = Field(
+        default=None, unique=True, index=True, max_length=255
+    )
     status: str = Field(default=TxnStatus.pending.value, max_length=20, index=True)
     description: str | None = Field(default=None, max_length=255)
     created_at: datetime | None = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
-    entries: list["LedgerEntry"] = Relationship(back_populates="transaction", cascade_delete=True)
+    entries: list["LedgerEntry"] = Relationship(
+        back_populates="transaction", cascade_delete=True
+    )
 
 
 class LedgerEntry(SQLModel, table=True):
     """Immutable, append-only. Signed minor units (+credit / -debit).
     Per transaction the entries MUST sum to 0 (debits == credits)."""
+
     __tablename__ = "ledger_entry"
-    __table_args__ = (CheckConstraint("amount_cents <> 0", name="entry_amount_nonzero"),)
+    __table_args__ = (
+        CheckConstraint("amount_cents <> 0", name="entry_amount_nonzero"),
+    )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     transaction_id: uuid.UUID = Field(
-        foreign_key="ledger_transaction.id", nullable=False, index=True, ondelete="CASCADE"
+        foreign_key="ledger_transaction.id",
+        nullable=False,
+        index=True,
+        ondelete="CASCADE",
     )
     account_id: uuid.UUID = Field(foreign_key="account.id", nullable=False, index=True)
     amount_cents: int = Field(sa_type=BigInteger)  # integer cents, never float
     created_at: datetime | None = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
     transaction: Transaction | None = Relationship(back_populates="entries")
 
@@ -196,6 +211,7 @@ class LedgerEntry(SQLModel, table=True):
 class OutboxEvent(SQLModel, table=True):
     """Written in the SAME DB transaction as the ledger entries → no lost events.
     A worker later publishes pending rows and marks them published."""
+
     __tablename__ = "outbox_event"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     aggregate_id: uuid.UUID = Field(index=True)  # the transaction id
@@ -203,7 +219,8 @@ class OutboxEvent(SQLModel, table=True):
     payload: dict = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
     status: str = Field(default=OutboxStatus.pending.value, max_length=20, index=True)
     created_at: datetime | None = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
     published_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))  # type: ignore
 
@@ -244,6 +261,7 @@ class TransactionPublic(SQLModel):
 
 class RecurringTransfer(SQLModel, table=True):
     """A standing order: the scheduler executes this transfer every interval_seconds."""
+
     __tablename__ = "recurring_transfer"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     from_account_id: uuid.UUID = Field(foreign_key="account.id", index=True)
@@ -253,11 +271,58 @@ class RecurringTransfer(SQLModel, table=True):
     active: bool = Field(default=True, index=True)
     runs: int = Field(default=0)
     next_run_at: datetime = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
     created_at: datetime | None = Field(
-        default_factory=get_datetime_utc, sa_type=DateTime(timezone=True)  # type: ignore
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
     )
+
+
+class AccountBalance(SQLModel, table=True):
+    """CQRS read model: a per-account balance materialized by the event worker as it
+    consumes ledger events. Eventually consistent with the authoritative
+    SUM(ledger_entry); the projection endpoint reports lag_cents (which must reach 0)."""
+
+    __tablename__ = "account_balance"
+    account_id: uuid.UUID = Field(foreign_key="account.id", primary_key=True)
+    balance_cents: int = Field(default=0, sa_type=BigInteger)
+    events_applied: int = Field(default=0)
+    updated_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ProcessedEvent(SQLModel, table=True):
+    """Idempotency ledger for the event consumer: one row per outbox event the
+    projection has applied. The bus is at-least-once, so on redelivery the worker
+    finds the id here and skips it → the read model is updated exactly once."""
+
+    __tablename__ = "processed_event"
+    event_id: uuid.UUID = Field(primary_key=True)
+    processed_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+
+
+class ReconciliationCheck(SQLModel, table=True):
+    """Audit trail of scheduled reconciliation runs. The relay writes one row per
+    check so the API/UI can show 'last reconciled at X: balanced ✓' and alerting can
+    fire on the first balanced=false."""
+
+    __tablename__ = "reconciliation_check"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    checked_at: datetime | None = Field(
+        default_factory=get_datetime_utc,
+        sa_type=DateTime(timezone=True),
+        index=True,  # type: ignore
+    )
+    balanced: bool = Field(default=True, index=True)
+    global_drift_cents: int = Field(default=0, sa_type=BigInteger)
+    detail: dict = Field(default_factory=dict, sa_column=Column(JSONB, nullable=False))
 
 
 class RecurringCreate(SQLModel):

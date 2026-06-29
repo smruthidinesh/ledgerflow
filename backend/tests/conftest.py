@@ -9,9 +9,12 @@ from app.core.db import engine, init_db
 from app.main import app
 from app.models import (
     Account,
+    AccountBalance,
     Item,
     LedgerEntry,
     OutboxEvent,
+    ProcessedEvent,
+    ReconciliationCheck,
     RecurringTransfer,
     Transaction,
     User,
@@ -25,9 +28,12 @@ def db() -> Generator[Session]:
     with Session(engine) as session:
         init_db(session)
         yield session
-        # clean up in FK-safe order (ledger entries reference accounts/transactions;
-        # accounts reference users) so the teardown DELETE on user doesn't violate FKs
+        # clean up in FK-safe order (ledger entries + the read-model balance reference
+        # accounts; accounts reference users) so teardown DELETEs don't violate FKs
         session.execute(delete(RecurringTransfer))
+        session.execute(delete(AccountBalance))
+        session.execute(delete(ProcessedEvent))
+        session.execute(delete(ReconciliationCheck))
         session.execute(delete(LedgerEntry))
         session.execute(delete(OutboxEvent))
         session.execute(delete(Transaction))
