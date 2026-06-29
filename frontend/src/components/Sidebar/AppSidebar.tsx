@@ -1,4 +1,4 @@
-import { Activity, Gauge, Home, Landmark, Users } from "lucide-react"
+import { Activity, BookText, Gauge, Home, Landmark, Users } from "lucide-react"
 
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
@@ -12,9 +12,13 @@ import useAuth from "@/hooks/useAuth"
 import { type Item, Main } from "./Main"
 import { User } from "./User"
 
+const API_DOCS_URL = `${import.meta.env.VITE_API_URL}/docs`
+
 const baseItems: Item[] = [
   { icon: Home, title: "Dashboard", path: "/" },
   { icon: Landmark, title: "Ledger", path: "/ledger" },
+  // live, self-documenting FastAPI Swagger UI (opens in a new tab)
+  { icon: BookText, title: "API Docs", path: API_DOCS_URL, external: true },
 ]
 
 // Operator dashboards — system-wide views, superuser only

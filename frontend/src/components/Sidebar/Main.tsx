@@ -14,6 +14,7 @@ export type Item = {
   icon: LucideIcon
   title: string
   path: string
+  external?: boolean // open path in a new tab (e.g. the FastAPI Swagger docs)
 }
 
 interface MainProps {
@@ -36,7 +37,7 @@ export function Main({ items }: MainProps) {
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => {
-            const isActive = currentPath === item.path
+            const isActive = !item.external && currentPath === item.path
 
             return (
               <SidebarMenuItem key={item.title}>
@@ -45,10 +46,22 @@ export function Main({ items }: MainProps) {
                   isActive={isActive}
                   asChild
                 >
-                  <RouterLink to={item.path} onClick={handleMenuClick}>
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </RouterLink>
+                  {item.external ? (
+                    <a
+                      href={item.path}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleMenuClick}
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </a>
+                  ) : (
+                    <RouterLink to={item.path} onClick={handleMenuClick}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </RouterLink>
+                  )}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )
